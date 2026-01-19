@@ -6,7 +6,10 @@ const dashboardController = require('../controllers/dashboardController');
 router.get('/dashboard/summary/total-jobs', dashboardController.getTotalJobs);
 router.get('/dashboard/summary/monthly-growth', dashboardController.getMonthlyGrowth);
 router.get('/dashboard/summary/avg-salary', dashboardController.getAvgSalary);
+router.get('/dashboard/summary/avg-salary', dashboardController.getAvgSalary);
 router.get('/dashboard/summary/active-companies', dashboardController.getActiveCompanies);
+router.get('/dashboard/summary/top-location', dashboardController.getTopLocation); // NEW
+
 
 // Main Charts (6 endpoints)
 router.get('/dashboard/charts/top-industries', dashboardController.getTopIndustries);
