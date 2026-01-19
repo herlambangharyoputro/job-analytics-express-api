@@ -653,3 +653,188 @@ exports.getSalaryPreview = async (req, res) => {
     });
   }
 };
+
+// /**
+//  * KPI Card #3: Average Salary Range
+//  * GET /api/v1/analytics/dashboard/summary/avg-salary
+//  */
+// exports.getAvgSalary = async (req, res) => {
+//   try {
+//     // Main salary statistics query
+//     const query = `
+//       SELECT 
+//         ROUND(AVG((salary_min + salary_max) / 2), 0) as avg_salary,
+//         MIN(salary_min) as min_salary,
+//         MAX(salary_max) as max_salary,
+//         COUNT(*) as jobs_with_salary,
+//         ROUND(AVG(salary_min), 0) as avg_min_salary,
+//         ROUND(AVG(salary_max), 0) as avg_max_salary
+//       FROM jobs
+//       WHERE is_active = TRUE 
+//         AND salary_min IS NOT NULL 
+//         AND salary_max IS NOT NULL
+//         AND salary_min > 0
+//         AND salary_currency = 'IDR';
+//     `;
+
+//     const [rows] = await db.query(query);
+//     const data = rows[0];
+
+//     // Get industry with highest average salary (top paying industry)
+//     const industryQuery = `
+//       SELECT 
+//         i.name as industry_name,
+//         ROUND(AVG((j.salary_min + j.salary_max) / 2), 0) as avg_salary,
+//         COUNT(j.id) as job_count
+//       FROM jobs j
+//       JOIN industries i ON j.industry_id = i.id
+//       WHERE j.is_active = TRUE 
+//         AND j.salary_min IS NOT NULL 
+//         AND j.salary_max IS NOT NULL
+//         AND j.salary_min > 0
+//         AND j.salary_currency = 'IDR'
+//       GROUP BY i.id, i.name
+//       HAVING COUNT(j.id) >= 3
+//       ORDER BY avg_salary DESC
+//       LIMIT 1;
+//     `;
+
+//     const [industryRows] = await db.query(industryQuery);
+//     const topPayingIndustry = industryRows[0] || { 
+//       industry_name: 'Technology', 
+//       avg_salary: 0 
+//     };
+
+//     // Calculate salary growth (compare this month vs previous month)
+//     const growthQuery = `
+//       SELECT 
+//         ROUND(AVG(CASE 
+//           WHEN posted_at >= DATE_SUB(NOW(), INTERVAL 30 DAY) 
+//           THEN (salary_min + salary_max) / 2 
+//         END), 0) as avg_salary_this_month,
+//         ROUND(AVG(CASE 
+//           WHEN posted_at >= DATE_SUB(NOW(), INTERVAL 60 DAY) 
+//             AND posted_at < DATE_SUB(NOW(), INTERVAL 30 DAY) 
+//           THEN (salary_min + salary_max) / 2 
+//         END), 0) as avg_salary_prev_month
+//       FROM jobs
+//       WHERE is_active = TRUE 
+//         AND salary_min IS NOT NULL 
+//         AND salary_max IS NOT NULL
+//         AND salary_min > 0
+//         AND salary_currency = 'IDR';
+//     `;
+
+//     const [growthRows] = await db.query(growthQuery);
+//     const growthData = growthRows[0];
+
+//     // Calculate growth percentage
+//     const avgThisMonth = parseFloat(growthData.avg_salary_this_month) || 0;
+//     const avgPrevMonth = parseFloat(growthData.avg_salary_prev_month) || 0;
+//     const growthPercentage = avgPrevMonth > 0 
+//       ? ((avgThisMonth - avgPrevMonth) / avgPrevMonth * 100).toFixed(2)
+//       : 0;
+
+//     res.json({
+//       success: true,
+//       data: {
+//         avg_salary: parseInt(data.avg_salary) || 0,
+//         min_salary: parseInt(data.min_salary) || 0,
+//         max_salary: parseInt(data.max_salary) || 0,
+//         avg_min_salary: parseInt(data.avg_min_salary) || 0,
+//         avg_max_salary: parseInt(data.avg_max_salary) || 0,
+//         jobs_with_salary: parseInt(data.jobs_with_salary) || 0,
+//         top_paying_industry: topPayingIndustry.industry_name,
+//         top_paying_avg: parseInt(topPayingIndustry.avg_salary) || 0,
+//         growth_percentage: parseFloat(growthPercentage) || 0,
+//       }
+//     });
+//   } catch (error) {
+//     console.error('Error in getAvgSalary:', error);
+//     res.status(500).json({
+//       success: false,
+//       message: 'Failed to fetch average salary data',
+//       error: error.message
+//     });
+//   }
+// };
+
+/**
+ * KPI Card - Top Location
+ * GET /api/v1/analytics/dashboard/summary/top-location
+ */
+exports.getTopLocation = async (req, res) => {
+  try {
+    const query = `
+      SELECT 
+        l.city as top_location,
+        COUNT(j.id) as job_count,
+        ROUND(COUNT(j.id) * 100.0 / (SELECT COUNT(*) FROM jobs WHERE is_active = TRUE), 2) as percentage,
+        COUNT(CASE WHEN j.posted_at >= DATE_SUB(NOW(), INTERVAL 30 DAY) THEN 1 END) as jobs_this_month,
+        COUNT(CASE WHEN j.posted_at >= DATE_SUB(NOW(), INTERVAL 60 DAY) 
+                  AND j.posted_at < DATE_SUB(NOW(), INTERVAL 30 DAY) THEN 1 END) as jobs_prev_month,
+        ROUND(
+          (COUNT(CASE WHEN j.posted_at >= DATE_SUB(NOW(), INTERVAL 30 DAY) THEN 1 END) - 
+           COUNT(CASE WHEN j.posted_at >= DATE_SUB(NOW(), INTERVAL 60 DAY) 
+                     AND j.posted_at < DATE_SUB(NOW(), INTERVAL 30 DAY) THEN 1 END)) * 100.0 / 
+          NULLIF(COUNT(CASE WHEN j.posted_at >= DATE_SUB(NOW(), INTERVAL 60 DAY) 
+                            AND j.posted_at < DATE_SUB(NOW(), INTERVAL 30 DAY) THEN 1 END), 0),
+          2
+        ) as growth_percentage
+      FROM jobs j
+      JOIN locations l ON j.location_id = l.id
+      WHERE j.is_active = TRUE
+      GROUP BY l.id, l.city
+      ORDER BY job_count DESC
+      LIMIT 1;
+    `;
+
+    const [rows] = await db.query(query);
+    const topLocation = rows[0];
+
+    // Get second location for comparison
+    const secondQuery = `
+      SELECT 
+        l.city as second_location,
+        COUNT(CASE WHEN j.posted_at >= DATE_SUB(NOW(), INTERVAL 30 DAY) THEN 1 END) as jobs_this_month,
+        COUNT(CASE WHEN j.posted_at >= DATE_SUB(NOW(), INTERVAL 60 DAY) 
+                  AND j.posted_at < DATE_SUB(NOW(), INTERVAL 30 DAY) THEN 1 END) as jobs_prev_month,
+        ROUND(
+          (COUNT(CASE WHEN j.posted_at >= DATE_SUB(NOW(), INTERVAL 30 DAY) THEN 1 END) - 
+           COUNT(CASE WHEN j.posted_at >= DATE_SUB(NOW(), INTERVAL 60 DAY) 
+                     AND j.posted_at < DATE_SUB(NOW(), INTERVAL 30 DAY) THEN 1 END)) * 100.0 / 
+          NULLIF(COUNT(CASE WHEN j.posted_at >= DATE_SUB(NOW(), INTERVAL 60 DAY) 
+                            AND j.posted_at < DATE_SUB(NOW(), INTERVAL 30 DAY) THEN 1 END), 0),
+          2
+        ) as second_location_growth
+      FROM jobs j
+      JOIN locations l ON j.location_id = l.id
+      WHERE j.is_active = TRUE
+      GROUP BY l.id, l.city
+      ORDER BY COUNT(j.id) DESC
+      LIMIT 1 OFFSET 1;
+    `;
+
+    const [secondRows] = await db.query(secondQuery);
+    const secondLocation = secondRows[0] || {};
+
+    res.json({
+      success: true,
+      data: {
+        top_location: topLocation?.top_location || 'Jakarta',
+        job_count: parseInt(topLocation?.job_count) || 0,
+        percentage: parseFloat(topLocation?.percentage) || 0,
+        growth_percentage: parseFloat(topLocation?.growth_percentage) || 0,
+        second_location: secondLocation?.second_location || null,
+        second_location_growth: parseFloat(secondLocation?.second_location_growth) || 0,
+      }
+    });
+  } catch (error) {
+    console.error('Error in getTopLocation:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch top location data',
+      error: error.message
+    });
+  }
+};
